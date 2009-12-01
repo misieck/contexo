@@ -327,7 +327,10 @@ class CTXDepMgr: # The dependency manager class.
         self.codeModulePaths          = codeModulePaths
 
         self.addDependSearchPaths( codeModulePaths )
+
+        #cache for locate
         self.filelist = dict()
+        self.analysedpaths = set()
 
     def _CTXDepMgr__updateDependencies ( self, inputFileList, pathList):
 
@@ -408,10 +411,10 @@ class CTXDepMgr: # The dependency manager class.
         paths = self.depPaths;
 
 
-        def addPathToDict(path):
-            for file in os.listdir(path):
-                self.filelist.setdefault( file, [] ).append(os.path.join(path,  file))
-        map(addPathToDict,  pathList)
+#        def addPathToDict(path):
+#            for file in os.listdir(path):
+#                self.filelist.setdefault( file, [] ).append(os.path.join(path,  file))
+#        map(addPathToDict,  pathList)
 
         if cmod.hasExternalDependencies():
             paths.update( assureList( CTXCodeModule(cmod.modRoot).resolveExternalDeps() ) )
@@ -443,29 +446,33 @@ class CTXDepMgr: # The dependency manager class.
 
     # the pathList is only used once. Then is is cached in a dictionary.
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
     def locate(self,  file,  pathList=None):
 
         def retpaths(dir):
             return map( partial (os.path.join, dir), os.listdir(dir) )
-        if not self.filelist and pathList:
-            t0 = time()
+        #if not self.filelist and pathList:
+        #t0 = time()
             #alist = reduce(operator.add, map( retpaths, pathList),[])
 
-            def addPathToDict(path):
-                for file in os.listdir(path):
-                    self.filelist.setdefault( file, [] ).append(os.path.join(path,  file))
-            map(addPathToDict,  pathList)
+        def addPathToDict(path):
+            self.analysedpaths.add(path)
+            for file in os.listdir(path):
+                self.filelist.setdefault( file, set() ).add( os.path.join(path,  file))
+        if pathList:
+            map(addPathToDict,  set(pathList) - self.analysedpaths)
 
            #for full_path in alist:
             #    self.filelist.setdefault( os.path.basename(full_path), [] ).append(full_path)
 
-            print "reduce: %f"%( time()-t0)
+        #print "reduce: %f"%( time()-t0)
 
         if os.path.isabs(file) and os.path.exists(file):
             return file
         filelist = self.filelist
         if file not in self.inputFilePathDict or not self.inputFilePathDict[file] or not os.path.exists(self.inputFilePathDict[file]) :
             filefromlist = findFileInFilePathList (file,  filelist)
+            #print "locate: %f"%( time()-t0)
             #filefromlist = findFileInPathList ( file, pathList )
             if filefromlist==None:
                 return None
