@@ -26,8 +26,8 @@ path = os.path.expandvars("$PATH")
 paths = path.split(os.pathsep)
 
 interestingfiles = ['ctx.py',  'ctx.bat',  'msvc.py', 'msvc.bat',   'tengiltests.py']
-combination = [(path, file) for path in paths for file in interestingfiles]
-ctxpaths = filter(os.path.exists, map(lambda (pair): os.path.join(*pair), combination) )
+combinations = [(path, file) for path in paths for file in interestingfiles]
+ctxpaths = filter(os.path.exists, map(lambda pair: os.path.join(*pair), combinations) )
 suspected_ctx_paths = filter(lambda ctxpath: re.search(os.path.join('c:', 'program files'), ctxpath, re.IGNORECASE), ctxpaths)
 
 if (suspected_ctx_paths):

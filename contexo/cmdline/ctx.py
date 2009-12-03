@@ -267,7 +267,7 @@ def cmd_info(args):
             for module in module_names:
                 print "\t",module
 
-        pub_headers = depmgr.getPublicHeaders ( args.module)
+        pub_headers = depmgr.getPublicHeaders ( args.module )
         pub_headers.sort()
         if len ( pub_headers ) > 0:
             print "\nPublic headers '" + args.module[0] + "' depends on:\n"
