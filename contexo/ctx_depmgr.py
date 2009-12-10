@@ -23,16 +23,49 @@ def getModulePubHeaderDir( modulePath ):
 def getModuleSourceDir( modulePath ):
     return CTXRawCodeModule(modulePath).getSourceDir()
 
+
+from functools import partial
+import os
+import operator
+from time import time
+
+
+#fileDict is of the form { filename:[ /paths/to/filename, ... ] }
+def findFileInFilePathList(src_file,  fileDict):
+    src_file = os.path.basename(src_file)
+    basename=os.path.basename
+    #t0 = time()
+    #filelist2 = filter(lambda file: basename(file) == src_file, fileList)
+    filelist2 = list()
+    if src_file in fileDict:
+        filelist2 = fileDict[src_file]
+    ctxpaths = filter(os.path.isfile, filelist2)
+    #t1 = time() - t0
+    #print 'filter files3: %f %d %s'%(t1,  len(fileDict), ', '.join(ctxpaths) )
+
+    if not ctxpaths:
+        userErrorExit("'%s' cannot be resolved in current path list."%( src_file) )
+        infoMessage("%s"%"\n".join(pathList), msgVerboseLevel=8)
+    if len(ctxpaths) > 1:
+         userErrorExit("Name '%s' is ambiguous:\n %s"%(src_file,  ', '.join(ctxpaths)))
+
+    return ctxpaths[0]
+
 #------------------------------------------------------------------------------
 def findFileInPathList( src_file, pathList ):
-    if src_file and pathList:
-        for path in pathList:
-            src_path = os.path.join( path, src_file)
-            if os.path.exists(src_path):
-                return src_path
-        errorMessage("'%s' cannot be resolved in current path list."%( src_file) )
+
+    #t0 = time()
+    src_file = os.path.basename(src_file)
+    ctxpaths = filter(os.path.exists, map(lambda path: os.path.join(path,  src_file) ,  pathList ) )
+    #print 'old filter: %f %s'%(time() - t0, ', '.join(ctxpaths) )
+
+    if not ctxpaths:
+        userErrorExit("'%s' cannot be resolved in current path list."%( src_file) )
         infoMessage("%s"%"\n".join(pathList), msgVerboseLevel=8)
-    return None
+    if len(ctxpaths) > 1:
+         userErrorExit("Name '%s' is ambiguous:\n %s"%(src_file,  ', '.join(ctxpaths)))
+
+    return ctxpaths[0]
 
 #------------------------------------------------------------------------------
 def getMD5( buf ):
@@ -79,35 +112,36 @@ def generateChecksum( inputFilePath, checksumMethod ):
 # Appends the absolute path to a given source file.
 # If the path is not available in the dictionary, add it.
 
-def appendPath ( incFilePathDict, pathList, includeFile ):
-
-    if includeFile in incFilePathDict:
-        absPath = incFilePathDict[includeFile]
-    else:
-        absPath = findFileInPathList( includeFile, pathList )
-
-    ctxAssert ( absPath != None )
-    ctxAssert ( os.path.exists ( absPath ), "Path does not exist")
-
-    incFilePathDict[includeFile] = absPath
-
-    return absPath
+#def appendPath ( incFilePathDict, pathList, includeFile ):
+#
+#    if includeFile in incFilePathDict:
+#        absPath = incFilePathDict[includeFile]
+#    else:
+#        absPath = findFileInPathList( includeFile, pathList )
+#
+#    ctxAssert ( absPath != None )
+#    ctxAssert ( os.path.exists ( absPath ), "Path does not exist")
+#
+#    incFilePathDict[includeFile] = absPath
+#
+#    return absPath
 
 #
 # Checks that the current cached path is still valid, and if not,
 # update it accordingly.
 #
 
-def checkPath ( incFilePathDict, pathList, includePath ):
-    if os.path.exists ( includePath ):
-        return includePath
-    else:
-        return appendPath ( incFilePathDict, pathList, os.path.basename (includePath) )
+#def checkPath ( incFilePathDict, pathList, includePath ):
+#    if os.path.exists ( includePath ):
+#        return includePath
+#    else:
+#        return appendPath ( incFilePathDict, pathList, os.path.basename (includePath) )
 
-def updatePath ( inputFile, inputFilePathDict, pathList ):
-    inputFilePath = findFileInPathList ( inputFile, pathList )
-    inputFilePathDict[inputFile] = inputFilePath
-    return inputFilePath
+#
+#def updatePath ( inputFile, inputFilePathDict, pathList ):
+#    inputFilePath = findFileInPathList ( inputFile, pathList )
+#    inputFilePathDict[inputFile] = inputFilePath
+#    return inputFilePath
 
 
 
@@ -293,6 +327,7 @@ class CTXDepMgr: # The dependency manager class.
         self.codeModulePaths          = codeModulePaths
 
         self.addDependSearchPaths( codeModulePaths )
+        self.filelist = dict()
 
     def _CTXDepMgr__updateDependencies ( self, inputFileList, pathList):
 
@@ -372,6 +407,12 @@ class CTXDepMgr: # The dependency manager class.
 
         paths = self.depPaths;
 
+
+        def addPathToDict(path):
+            for file in os.listdir(path):
+                self.filelist.setdefault( file, [] ).append(os.path.join(path,  file))
+        map(addPathToDict,  pathList)
+
         if cmod.hasExternalDependencies():
             paths.update( assureList( CTXCodeModule(cmod.modRoot).resolveExternalDeps() ) )
 
@@ -400,10 +441,32 @@ class CTXDepMgr: # The dependency manager class.
                 ret.append(file)
         return ret
 
+    # the pathList is only used once. Then is is cached in a dictionary.
     # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
     def locate(self,  file,  pathList=None):
+
+        def retpaths(dir):
+            return map( partial (os.path.join, dir), os.listdir(dir) )
+        if not self.filelist and pathList:
+            t0 = time()
+            #alist = reduce(operator.add, map( retpaths, pathList),[])
+
+            def addPathToDict(path):
+                for file in os.listdir(path):
+                    self.filelist.setdefault( file, [] ).append(os.path.join(path,  file))
+            map(addPathToDict,  pathList)
+
+           #for full_path in alist:
+            #    self.filelist.setdefault( os.path.basename(full_path), [] ).append(full_path)
+
+            print "reduce: %f"%( time()-t0)
+
+        if os.path.isabs(file) and os.path.exists(file):
+            return file
+        filelist = self.filelist
         if file not in self.inputFilePathDict or not self.inputFilePathDict[file] or not os.path.exists(self.inputFilePathDict[file]) :
-            filefromlist = findFileInPathList ( file, pathList )
+            filefromlist = findFileInFilePathList (file,  filelist)
+            #filefromlist = findFileInPathList ( file, pathList )
             if filefromlist==None:
                 return None
             self.inputFilePathDict[file] = filefromlist

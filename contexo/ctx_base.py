@@ -663,10 +663,11 @@ class CTXBuildSession:
 
         needRebuild     = True
 
-        srcFile = self.depMgr.getFullPathname( srcFile )
+        assert( os.path.isabs(srcFile) )
+        srcFile1 = srcFile #self.depMgr.getFullPathname( srcFile )
 
-        objChecksum     = self.makeStaticObjectChecksum( srcFile, buildParamsChecksum )
-        objectFilename  = self.compiler.makeObjFileName( srcFile, objFileTitle )
+        objChecksum     = self.makeStaticObjectChecksum( srcFile1, buildParamsChecksum )
+        objectFilename  = self.compiler.makeObjFileName( srcFile1, objFileTitle )
 
 
         if forceRebuild == False:
@@ -680,10 +681,10 @@ class CTXBuildSession:
                               %(objectFilename, objChecksum, oldChecksum), 4)
 
         if needRebuild:
-            obj = self.compiler.staticObject( srcFile, joinedBuildParams, outputDir, objFileTitle )
+            obj = self.compiler.staticObject( srcFile1, joinedBuildParams, outputDir, objFileTitle )
             self.writeStaticObjectChecksum( os.path.join(obj.filepath,obj.filename), objChecksum )
         else:
-            obj = self.compiler.wrapStaticObject( srcFile, objectFilename, outputDir, buildParams, "n/a" )
+            obj = self.compiler.wrapStaticObject( srcFile1, objectFilename, outputDir, buildParams, "n/a" )
 
         return obj
 
