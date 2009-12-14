@@ -44,8 +44,9 @@ def findFileInFilePathList(src_file,  fileDict):
     #print 'filter files3: %f %d %s'%(t1,  len(fileDict), ', '.join(ctxpaths) )
 
     if not ctxpaths:
-        userErrorExit("'%s' cannot be resolved in current path list."%( src_file) )
-        infoMessage("%s"%"\n".join(pathList), msgVerboseLevel=8)
+        errorMessage("'%s' cannot be resolved in current path list."%( src_file) )
+        #infoMessage("%s"%fileDict.keys(), msgVerboseLevel=8)
+        return None
     if len(ctxpaths) > 1:
          userErrorExit("Name '%s' is ambiguous:\n %s"%(src_file,  ', '.join(ctxpaths)))
 
@@ -268,7 +269,7 @@ def findAllCodeModulPaths( searchPaths ):
         if len(codeModulePaths) == 0:
             try:
                 pathCandidates = os.listdir( path )
-            except OSError as (errno,  errmsg):
+            except OSError,  (errno,  errmsg):
                 userErrorExit("Could not list directory '%s': %s"%(path,  errmsg))
             for cand in pathCandidates:
                 candPath = os.path.join( path, cand )
