@@ -304,7 +304,7 @@ def cmd_parse( args ):
             else:
                 return os.path.join(args.project, *pathComps).replace("\\", "/")
         else:
-            return os.path.join(args.ndk, "apps", args.app, "project").replace("\\", "/")
+            return os.path.join(args.ndk, "apps", args.app, "project", *pathComps).replace("\\", "/")
     def getOutPath(*pathComps):
         if args.output <> None:
             if not os.path.isabs(args.output):
@@ -417,21 +417,26 @@ def cmd_parse( args ):
         infoMessage("Created %s" % (mkFileName), mkFileVerbosity)
 
     if not omits["top"]:
+        if not os.path.isdir(getOutPath(libPath)):
+            os.makedirs(getOutPath(libPath))
         topMkFileName = getOutPath(libPath, "Android.mk")
         file = open(topMkFileName, "wt")
         file.write("include $(call all-subdir-makefiles)")
         file.close()
 
     if not omits["app"]:
+        if not os.path.isdir(applicationDir):
+            os.makedirs(applicationDir)
         appMkFileName = os.path.join(applicationDir, "Application.mk")
         file = open(appMkFileName, "wt")
         libNames = [staticLib['LIBNAME'] for staticLib in staticLibs]
         if sharedObjLib <> None:
             libNames.append(sharedObjLib['LIBNAME'])
-        file.write("APP_PROJECT_PATH := $(call my-dir)/project\n")
         file.write("APP_MODULES      := %s\n" % (" ".join(libNames)))
         if args.project <> None:
             file.write("APP_PROJECT_PATH := %s" % (absPath(getDstPath())))
+        else:
+            file.write("APP_PROJECT_PATH := $(call my-dir)/project\n")
         if bc_file.dbgmode:
             file.write("APP_OPTIM      := debug\n")
         file.close()
@@ -489,7 +494,7 @@ parser.add_argument('-mp', '--mk-path', default="jni",
  will be put in this directory or below it, except the
  Application.mk. Defaults to 'jni'.""")
 
-parser.add_argument('-p', '--project',
+parser.add_argument('-p', '--project', default=None,
  help="""The project directory.""")
 
 parser.add_argument('-so', '--shared', default=None, nargs='+',
