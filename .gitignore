@@ -2,6 +2,15 @@ build/
 .ropeproject/
 .eric4project/
 contexo.e4p
+contexo*.zip
+*.geany
+*.kdevelop
+*.kdevses
+releasenotes-?*.txt
+*.profile
+*.timings
+.coverage
+*.py.orig
 *.pyc
 *~
 private/
