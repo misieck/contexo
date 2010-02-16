@@ -27,10 +27,13 @@ globalVerboseLevel  = 1
 
 def areURLsEqual(url1,  url2):
     import urllib
-    if urllib.unquote(url1).rstrip(  '/' ) != urllib.unquote(url2).rstrip( '/'):
-        return False
-    else:
+    #they are equal if both are none or when their string are equal
+    if url1 and url2:
+        if urllib.unquote(url1).rstrip(  '/' ) == urllib.unquote(url2).rstrip( '/'):
+            return True
+    elif  not (url1 or url2):
         return True
+    return False
 
 #------------------------------------------------------------------------------
 def ctxExit( exitcode ):
