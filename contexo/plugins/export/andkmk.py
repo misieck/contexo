@@ -61,7 +61,46 @@ def relPath(path):
     for i in range(len(relPathSub) / 2):
         newPath = newPath.replace(relPathSub[2 * i], relPathSub[2 * i + 1])
     return newPath
-	
+def prepPath(path):
+    if os.path.isabs(path):
+        return absPath(path)
+    else:
+        return relPath(path)
+
+def lowestCommonPath(paths):
+    """Returns the shortest absolute path common to all the paths in a list.
+    """
+    pos = 0
+    reg = re.compile("[/\\\\]")
+    def _preProcPath(_path):
+        if os.path.isfile(_path):
+            _p, _name = os.path.split(_path)
+            if len(_p) == 0:
+                userErrorExit( "Bad path '%s'." % (_path))
+            return absPath(_p)
+        else:
+            return absPath(_path)
+    paths = [reg.split(_preProcPath(path)) for path in paths]
+    newPathComps = []
+    size = len(paths[0])
+    for path in paths:
+		size = min(size, len(path))
+    while pos < size:
+        cmp = paths[0][pos]
+        doBreak = False
+        for path in paths:
+            if pos >= len(path) or path[pos] != cmp:
+                doBreak = True
+                break
+        if doBreak:
+            break
+        newPathComps.append(cmp)
+        pos += 1
+    if len(newPathComps) > 0:
+        return "/".join(newPathComps)
+    else:
+        return "/"
+
 def computeRelPath(fromPath, toPath):
     """Returns a relative path starting from fromPath pointing
     at toPath.
@@ -74,23 +113,18 @@ def computeRelPath(fromPath, toPath):
         if fromComps[i] != toComps[i]:
             break
         i += 1
-    # A bit silly to have these two cases?
-    if i == 0:
-        m = len(fromComps)
-        path = "/".join(m * [".."]) + "/" + "/".join(toComps[i:])
-    else:
-        m = len(fromComps) - (i)
-        path = "/".join(m * [".."]) + "/" + "/".join(toComps[i:])
-    return path
+    m = len(fromComps) - (i)
+    newComps = m * [".."]
+    newComps.extend(toComps[i:])
+    return "/".join(newComps)
 
-def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPath=True, ldlibs=None, staticLibs=None):
+def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, args, useMkDir=True, localPath=None, useObjOutPath=False):
     """Returns a string containing Android.mk data for module.
     Several calls to this function can be combined into the same
     makefile.
     """
-    
-    def _incPath(path):
-        return "$(LOCAL_PATH)/" + relPath(computeRelPath(lclDstDir, path.replace("\\", "/")))
+    ldlibs = args.ldlibs
+    staticLibs = args.static_libs
     
     outData = []
     #
@@ -99,12 +133,24 @@ def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPa
     # Clear variables.
     # The name of the module.
     #
-    if localPath:
+    lclPath = lclDstDir
+    if useObjOutPath:
+        lclPath = absPath(os.path.join(args.ndk, "out", "apps", args.app, "objs", module['LIBNAME']).replace("\\", "/"))
+        outData.append("# Note that this is the location where the build system wants to place objects.\n")
+        outData.append("# By being relative to this we ensure objects are put next to sources (which seems to be as good as it gets).\n")
+        outData.append("LOCAL_PATH := %s\n\n" % (lclPath))
+    elif localPath <> None:
+        lclPath = localPath
+        outData.append("LOCAL_PATH := %s\n\n" % (lclPath))
+    elif useMkDir:
         outData.append("LOCAL_PATH := $(call my-dir)\n\n")
     outData.append("# Locale module [%s]\n" % (module['LIBNAME']))
     outData.append("include $(CLEAR_VARS)\n\n")
     outData.append("LOCAL_MODULE := %s\n\n" % (module['LIBNAME']))
 
+    def _incPath(path):
+        #return "$(LOCAL_PATH)/" + relPath(computeRelPath(lclDstDir, path.replace("\\", "/")))
+        return "$(LOCAL_PATH)/" + relPath(computeRelPath(lclPath, absPath(path.replace("\\", "/"))))
     #
     # Local flags
     #
@@ -116,7 +162,7 @@ def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPa
         localFlags.append(prepDefPrefix + "COMPILING_MOD_" + ctxMod["MODNAME"].upper() + prepDefSuffix)
     for prepDef in build_params.prepDefines:
         localFlags.append(prepDefPrefix + prepDef + prepDefSuffix)
-    outData.append((" \\\n" + 17 * " ").join(localFlags))
+    outData.append((" \\\n" + 16 * " ").join(localFlags))
     outData.append("\n\n")
 
     #
@@ -132,12 +178,13 @@ def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPa
         addedPaths = {} # Not to add the same path several times
         for ctxMod in module['MODULELIST']:
             for path in depMgr.getModuleIncludePaths(ctxMod['MODNAME']):
-                lclPath = _incPath(path)
-                if not addedPaths.has_key(lclPath):
-                    lclIncPaths.append(lclPath)
-                    addedPaths[lclPath] = True
+                _lclPath = _incPath(path)
+                if not addedPaths.has_key(_lclPath):
+                    lclIncPaths.append(_lclPath)
+                    addedPaths[_lclPath] = True
     outData.append("LOCAL_C_INCLUDES := ")
-    outData.append((" \\\n" + 17 * " ").join(lclIncPaths))
+    lclIncPaths.sort()
+    outData.append((" \\\n" + 20 * " ").join(lclIncPaths))
     
     #
     # Sources
@@ -145,15 +192,19 @@ def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPa
     sources = []
     for ctxMod in module['MODULELIST']:
         sources.extend(ctxMod["SOURCES"])
-    outData.append("\n\n")
-    outData.append("# Note that all sources are relative to LOCAL_PATH.\n")
-    outData.append("LOCAL_SRC_FILES := \\\n")
+    sources = set(sources)
+    _sources = []
     for source in sources:
         srcPath, srcName = os.path.split(source)
-        srcPath = relPath(srcPath)
-        srcRelPath = computeRelPath(lclDstDir, srcPath)
-        outData.append("    %s \\\n" % (srcRelPath + "/" + srcName))
-    outData.append("\n")
+        srcPath = absPath(srcPath)#relPath(srcPath)
+        srcRelPath = computeRelPath(lclPath, srcPath)
+        _sources.append(srcRelPath + "/" + srcName)
+    _sources.sort()
+    outData.append("\n\n")
+    outData.append("# Note that all sources are relative to LOCAL_PATH.\n")
+    outData.append("LOCAL_SRC_FILES := ")
+    outData.append((" \\\n" + 19 * " ").join(_sources))
+    outData.append("\n\n")
 
     if module.has_key('SHAREDOBJECT') and module['SHAREDOBJECT']:
         if staticLibs == None:
@@ -168,6 +219,8 @@ def moduleMk(module, build_params, modules, incPaths, depMgr, lclDstDir, localPa
             if len(ldlibs) > 0:
                 outData.append("LOCAL_LDLIBS := %s\n\n" % (" ".join(ldlibs)))
 
+    if args.arm_mode <> None:
+        outData.append("LOCAL_ARM_MODE := %s\n\n" % (args.arm_mode))
     #
     # Type of library
     #
@@ -273,12 +326,24 @@ def cmd_parse( args ):
     # Regardless if we export components or modules, all modules are located in export_data['MODULES']
     module_map = create_module_mapping_from_module_list( package.export_data['MODULES'].values() )
 
+    allSources = [] # Used to find a common path.
+    allCtxMods = {}
     staticLibs = []
     if comp_export:
         for comp in package.export_data['COMPONENTS']:
             for library, modules in comp.libraries.iteritems():
                 ctxMods = [ mod for mod in module_map if mod['MODNAME'] in modules  ]
                 staticLibs.append( { 'PROJNAME': library, 'LIBNAME': library, 'MODULELIST': ctxMods } )
+                for ctxMod in ctxMods:
+                    allSources.extend(ctxMod["SOURCES"])
+                    if not allCtxMods.has_key(ctxMod['MODNAME']):
+                        allCtxMods[ctxMod['MODNAME']] = []
+                    allCtxMods[ctxMod['MODNAME']].append(comp)
+        for ctxModName, comps in allCtxMods.iteritems():
+            if len(comps) > 1:
+                warningMessage("Contexo module, '%s' specified in multiple .comp-files:" % (ctxModName))
+                for comp in comps:
+                    warningMessage("      %s." % (comp.path))
 
     if args.ndk == None:
         userErrorExit("--ndk not specified.")
@@ -286,6 +351,8 @@ def cmd_parse( args ):
         userErrorExit("'%s' specified by --ndk does not exist or is not a directory." % (args.ndk))
     if args.app == None:
         userErrorExit("--app not specified.")
+    if args.arm_mode <> None and not args.arm_mode in ["arm", "thumb"]:
+        userErrorExit("Illegal arm mode '%s', specified with --arm-mode." % (args.arm_mode))
 
     if args.abs_sub <> None:
         if (len(args.abs_sub) % 2 != 0): userErrorExit("--abs-sub: number of arguments must be a 2-multiple.")
@@ -296,7 +363,12 @@ def cmd_parse( args ):
         global relPathSub
         relPathSub = args.rel_sub
 
-    # Set up paths.
+    # This will be used as LOCAL_PATH for all (android) modules.
+    # By using this path we ensure that no paths contain any "..".
+    # (They would mess up the android build system.)
+    localPath = lowestCommonPath(allSources)
+
+    # Returns a path to be used in a makefile.
     def getDstPath(*pathComps):
         if args.project <> None:
             if not os.path.isabs(args.project):
@@ -305,6 +377,8 @@ def cmd_parse( args ):
                 return os.path.join(args.project, *pathComps).replace("\\", "/")
         else:
             return os.path.join(args.ndk, "apps", args.app, "project", *pathComps).replace("\\", "/")
+			
+    # Returns a path that locates where to actually put a file.
     def getOutPath(*pathComps):
         if args.output <> None:
             if not os.path.isabs(args.output):
@@ -313,6 +387,8 @@ def cmd_parse( args ):
                 return os.path.join(args.output, "apps", args.app, "project", *pathComps).replace("\\", "/")
         else:
             return getDstPath(*pathComps)
+
+    # Determine location of the Application.mk.
     if args.output == None:
         applicationDir = os.path.join(args.ndk, "apps", args.app)
     else:
@@ -320,8 +396,7 @@ def cmd_parse( args ):
             applicationDir = os.path.join(os.getcwd(), args.output, "apps", args.app).replace("\\", "/")
         else:
             applicationDir = os.path.join(args.output, "apps", args.app).replace("\\", "/")
-    #projectPath = "project"
-    #libPath = os.path.join(projectPath, args.mk_path)
+    
     libPath = args.mk_path
 
     # Determine if anything is to be omitted.
@@ -334,18 +409,11 @@ def cmd_parse( args ):
             else:
                 omits[omit] = True
 
-    #
-    # Generate the makefile
-    #
-
-    # if not os.path.exists( outDir ):
-        # os.makedirs( outDir )
-
-    # There were some problems when one makefile per comp was created, (with the android build).
-    # I guess it should be possible to do it that way.
-    # However this way has proved to work.
-    # So, we set allInOne to True.
-    allInOne = True
+    # We generate one makefile per library.
+    # This variable could be possible to change via commandline.
+    # However, it's more practical to subdivide into several
+    # makefiles. If one of them is changed all others needn't be rebuilt.
+    allInOne = False
 
     sharedObjLib = None
     if args.shared <> None:
@@ -369,8 +437,7 @@ def cmd_parse( args ):
             warningMessage("Ignoring option --ldlibs since --shared was not specified.")
         if args.shared_name <> None:
             warningMessage("Ignoring option --shared-name since --shared was not specified.")
-    ldlibs = args.ldlibs
-	
+
     staticRelPath = "static"
     sharedRelPath = "shared"
 
@@ -378,13 +445,14 @@ def cmd_parse( args ):
     if not omits["static"] and len(staticLibs) > 0:
         if not allInOne:
             for staticLib in staticLibs:
-                lclDstDir = getDstPath(libPath, staticLib['LIBNAME'])
-                lclOutDir = getOutPath(libPath, staticLib['LIBNAME'])
+                dirName = staticRelPath + "_" + staticLib['LIBNAME']
+                lclDstDir = getDstPath(libPath, dirName)
+                lclOutDir = getOutPath(libPath, dirName)
                 if not os.path.exists(lclOutDir):
                     os.makedirs(lclOutDir)
                 mkFileName = os.path.join(lclOutDir, "Android.mk")
                 file = open(mkFileName, "wt")
-                file.write(moduleMk(staticLib, build_params, staticLibs, None, depMgr, lclDstDir))
+                file.write(moduleMk(staticLib, build_params, staticLibs, None, depMgr, lclDstDir, args, localPath=localPath))
                 file.close()
                 infoMessage("Created %s" % (mkFileName), mkFileVerbosity)
         else:
@@ -396,7 +464,7 @@ def cmd_parse( args ):
             file = open(mkFileName, "wt")
             i = 0
             for staticLib in staticLibs:
-                file.write(moduleMk(staticLib, build_params, staticLibs, None, depMgr, lclDstDir, i == 0))
+                file.write(moduleMk(staticLib, build_params, staticLibs, None, depMgr, lclDstDir, args, localPath=localPath))
                 file.write("#" * 60 + "\n")
                 i += 1
             file.close()
@@ -409,9 +477,9 @@ def cmd_parse( args ):
             os.makedirs(lclOutDir)
         mkFileName = os.path.join(lclOutDir, "Android.mk")
         file = open(mkFileName, "wt")
-        file.write(moduleMk(sharedObjLib, build_params, staticLibs, None, depMgr, lclDstDir, localPath=True, ldlibs=ldlibs, staticLibs=args.static_libs))
+        file.write(moduleMk(sharedObjLib, build_params, staticLibs, None, depMgr, lclDstDir, args, localPath=localPath))
         file.close()
-        if args.static_libs == None:
+        if args.static_libs == None and len(staticLibs) > 0:
             warningMessage("Computed link order is very likely not accurate.")
             warningMessage("See %s." % (mkFileName))
         infoMessage("Created %s" % (mkFileName), mkFileVerbosity)
@@ -450,16 +518,11 @@ def cmd_parse( args ):
 
 # Create Parser
 parser = ArgumentParser( description="""Android NDK MK export - plugin to Contexo Build System (c) 2006-2009 Scalado AB.
- 
+Creates makefiles for building a set of contexo component files with the Android NDK.
+
 Note that Contexo has a default bconf which likely is not
 compatible with Android. Make sure to specify a bc-file in the
 export.
-
-This script can produce the following output:
-  * Application.mk that points at the other makefiles
-  * An Android.mk that builds static libraries
-  * An Android.mk that builds a shared object
-  * An Android.mk that invokes the other Android.mk-files
 
 The @ can be used to put arguments in a file.
 
@@ -470,15 +533,16 @@ Content of args.txt = [
 --shared albv_android
 --ldlibs GLESv1_CM dl log
 --static-libs deplib1 deplib2 deplib3 deplib4
+--arm-mode arm
 ]
 The example will create:
 <NDK>/apps/midemo/Application.mk
 <CWD>/project/jni/Android.mk
-<CWD>/project/jni/static/Android.mk
+<CWD>/project/jni/static_<LIBNAME>/Android.mk (for each static library)
 <CWD>/project/jni/shared/Android.mk
 
 """,
- version="0.3", formatter_class=RawDescriptionHelpFormatter, fromfile_prefix_chars='@')
+ version="0.4.2", formatter_class=RawDescriptionHelpFormatter, fromfile_prefix_chars='@')
 
 parser.set_defaults(func=cmd_parse)
 
@@ -514,6 +578,11 @@ parser.add_argument('--ldlibs', default=None, nargs='+',
  Par example:
  --ldlibs GLESv1_CM dl log.""")
 
+parser.add_argument('--arm-mode', default=None,
+ help="""Specifies the arm mode. Must be either 'thumb' or 'arm'.
+ Par example:
+ --arm-mode arm.""")
+ 
 parser.add_argument('--no', default=None, nargs='+',
  help="""Omits creating the specified makefiles, which must be one or more of
  the following:
